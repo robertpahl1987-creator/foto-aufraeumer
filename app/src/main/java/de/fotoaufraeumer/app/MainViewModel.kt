@@ -18,6 +18,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+const val DARK_LIMIT = 30f
+
+enum class Category(val title: String, val desc: String, val swipeOnly: Boolean = false) {
+    BLURRY("Unscharfe Fotos", "Verwackelt oder verschwommen – die unschärfsten zuerst"),
+    DARK("Dunkle Fotos", "Fast schwarz, z. B. versehentliche Hosentaschen-Fotos"),
+    SCREENSHOTS("Screenshots", "Bildschirmfotos – oft nur kurz gebraucht"),
+    MESSENGER("Messenger-Bilder", "Empfangen über WhatsApp, Telegram, Signal & Co."),
+    OLDEST("Alte Fotos durchgehen", "Alle Fotos von den ältesten an – perfekt zum Wischen", swipeOnly = true),
+}
+
+enum class AgeFilter(val label: String, val days: Int) {
+    ALL("Alle", 0),
+    D30("Älter als 30 Tage", 30),
+    Y1("Älter als 1 Jahr", 365),
+}
+
 enum class SortMode(val label: String) {
     NEWEST("Neueste"),
     OLDEST("Älteste"),
@@ -40,7 +56,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var sortMode by mutableStateOf(SortMode.NEWEST)
     var lastMessage by mutableStateOf<String?>(null)
 
-    private val dHashes = HashMap<Long, Long>()
+    /** Analyse-Ergebnisse (Schärfe, Helligkeit, dHash) je Foto */
+    var stats by mutableStateOf<Map<Long, Stats>>(emptyMap()); private set
+    var blurThreshold by mutableFloatStateOf(80f)
+    private val statCache = HashMap<Long, Stats>()
     private var pendingTrash = true
     private var pendingCount = 0
     private var pendingBytes = 0L
@@ -65,6 +84,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 exactGroups = exact
 
                 withContext(Dispatchers.IO) { computeHashes(list) }
+                stats = HashMap(statCache)
                 status = "Gruppiere ähnliche Fotos…"
                 val t = threshold
                 similarGroups = withContext(Dispatchers.Default) { groupSimilar(list, exact, t) }
@@ -101,11 +121,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun computeHashes(list: List<Photo>) {
-        val todo = list.filter { it.id !in dHashes }
+        val todo = list.filter { it.id !in statCache }
         val total = todo.size.coerceAtLeast(1)
         todo.forEachIndexed { i, p ->
-            Scanner.dHash(cr, p.uri)?.let { dHashes[p.id] = it }
-            if (i % 10 == 0) report(0.3f + 0.7f * i / total, "Vergleiche Bildinhalte… ${i + 1} / ${todo.size}")
+            Scanner.analyze(cr, p.uri)?.let { statCache[p.id] = it }
+            if (i % 10 == 0) report(0.3f + 0.7f * i / total, "Analysiere Bildinhalte… ${i + 1} / ${todo.size}")
         }
     }
 
@@ -115,7 +135,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         // Einfarbige Bilder (z. B. schwarze Screenshots) ausschließen – die sähen sonst alle "gleich" aus
         val items = list.mapNotNull { p ->
-            val h = dHashes[p.id] ?: return@mapNotNull null
+            val h = statCache[p.id]?.dHash ?: return@mapNotNull null
             if (java.lang.Long.bitCount(h) in 4..60) p to h else null
         }.sortedBy { it.first.dateTaken }
 
@@ -218,10 +238,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         photos = photos.filterNot { it.id in gone }
         exactGroups = exactGroups.map { g -> g.filterNot { it.id in gone } }.filter { it.size > 1 }
         similarGroups = similarGroups.map { g -> g.filterNot { it.id in gone } }.filter { it.size > 1 }
-        gone.forEach { dHashes.remove(it) }
+        gone.forEach { statCache.remove(it) }
+        stats = HashMap(statCache)
         selected = emptySet()
         val what = if (pendingTrash) "in den Papierkorb verschoben" else "gelöscht"
         lastMessage = "$pendingCount Fotos $what · ${formatSize(pendingBytes)} frei"
+    }
+
+    // ---------- Aufräumen-Kategorien ----------
+
+    fun categoryPhotos(cat: Category): List<Photo> {
+        val st = stats
+        return when (cat) {
+            Category.BLURRY -> photos.filter { p ->
+                val s = st[p.id]
+                s != null && !isScreenshot(p) && s.brightness >= DARK_LIMIT && s.sharpness < blurThreshold
+            }.sortedBy { st[it.id]?.sharpness ?: 0f }
+            Category.DARK -> photos.filter { p ->
+                !isScreenshot(p) && (st[p.id]?.brightness ?: 255f) < DARK_LIMIT
+            }
+            Category.SCREENSHOTS -> photos.filter { isScreenshot(it) }
+            Category.MESSENGER -> photos.filter { isMessenger(it) }
+            Category.OLDEST -> photos.sortedBy { it.dateTaken }
+        }
+    }
+
+    fun deselect(id: Long) {
+        if (id in selected) selected = selected - id
+    }
+
+    fun select(id: Long) {
+        if (id !in selected) selected = selected + id
     }
 
     // ---------- Sortierte Ansicht ----------

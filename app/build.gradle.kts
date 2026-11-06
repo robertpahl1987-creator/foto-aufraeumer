@@ -12,8 +12,8 @@ android {
         applicationId = "de.fotoaufraeumer.app"
         minSdk = 30          // Android 11+
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     // Fester Schlüssel, damit Updates sich ohne Deinstallation installieren lassen

@@ -36,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -182,17 +183,22 @@ fun App(vm: MainViewModel = viewModel()) {
                         NavigationBarItem(
                             selected = tab == 0, onClick = { tab = 0 },
                             icon = { Icon(Icons.Filled.CheckCircle, null) },
-                            label = { Text("Duplikate (${vm.exactGroups.size})") }
+                            label = { Text("Duplikate", maxLines = 1) }
                         )
                         NavigationBarItem(
                             selected = tab == 1, onClick = { tab = 1 },
                             icon = { Icon(Icons.Filled.Search, null) },
-                            label = { Text("Ähnlich (${vm.similarGroups.size})") }
+                            label = { Text("Ähnlich", maxLines = 1) }
                         )
                         NavigationBarItem(
                             selected = tab == 2, onClick = { tab = 2 },
+                            icon = { Icon(Icons.Filled.Build, null) },
+                            label = { Text("Aufräumen", maxLines = 1) }
+                        )
+                        NavigationBarItem(
+                            selected = tab == 3, onClick = { tab = 3 },
                             icon = { Icon(Icons.Filled.DateRange, null) },
-                            label = { Text("Sortiert") }
+                            label = { Text("Alle", maxLines = 1) }
                         )
                     }
                 }
@@ -231,6 +237,11 @@ fun App(vm: MainViewModel = viewModel()) {
                             header = {
                                 SensitivityRow(vm.threshold) { vm.changeThreshold(it) }
                             }
+                        )
+                        2 -> CleanupTab(
+                            vm = vm,
+                            onPreview = { preview = it },
+                            onDelete = { if (vm.selected.isNotEmpty()) showConfirm = true }
                         )
                         else -> AllPhotos(vm) { preview = it }
                     }

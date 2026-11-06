@@ -100,6 +100,82 @@ object Scanner {
         null
     }
 
+    /**
+     * Analysiert ein Foto in einem Durchgang:
+     * - dHash für ähnliche Fotos
+     * - Schärfe (Varianz des Laplace-Filters – niedrig = unscharf)
+     * - Helligkeit (0 = schwarz, 255 = weiß)
+     */
+    fun analyze(cr: ContentResolver, uri: Uri): Stats? = try {
+        var bmp = cr.loadThumbnail(uri, Size(256, 256), null)
+        if (bmp.config == Bitmap.Config.HARDWARE) bmp = bmp.copy(Bitmap.Config.ARGB_8888, false)
+        val longest = maxOf(bmp.width, bmp.height)
+        if (longest > 256) {
+            val s = 256f / longest
+            bmp = Bitmap.createScaledBitmap(
+                bmp,
+                (bmp.width * s).toInt().coerceAtLeast(3),
+                (bmp.height * s).toInt().coerceAtLeast(3),
+                true
+            )
+        }
+        val w = bmp.width
+        val h = bmp.height
+        val px = IntArray(w * h)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        val g = IntArray(w * h) { luma(px[it]) }
+
+        var lumSum = 0L
+        for (v in g) lumSum += v
+        val brightness = lumSum.toFloat() / g.size
+
+        var sum = 0.0
+        var sumSq = 0.0
+        var n = 0
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val i = y * w + x
+                val lap = (4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w]).toDouble()
+                sum += lap
+                sumSq += lap * lap
+                n++
+            }
+        }
+        val sharpness = if (n > 0) {
+            val mean = sum / n
+            (sumSq / n - mean * mean).toFloat()
+        } else 0f
+
+        val small = Bitmap.createScaledBitmap(bmp, 9, 8, true)
+        var hash = 0L
+        var bit = 0
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                if (luma(small.getPixel(x, y)) > luma(small.getPixel(x + 1, y))) {
+                    hash = hash or (1L shl bit)
+                }
+                bit++
+            }
+        }
+        Stats(hash, sharpness, brightness)
+    } catch (e: Exception) {
+        null
+    }
+
     private fun luma(c: Int): Int =
         (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000
+}
+
+data class Stats(val dHash: Long, val sharpness: Float, val brightness: Float)
+
+private val messengerName = Regex("^IMG-\\d{8}-WA\\d+.*", RegexOption.IGNORE_CASE)
+
+fun isScreenshot(p: Photo): Boolean =
+    p.album.contains("screenshot", ignoreCase = true) ||
+        p.name.startsWith("screenshot", ignoreCase = true)
+
+fun isMessenger(p: Photo): Boolean {
+    val a = p.album.lowercase()
+    return "whatsapp" in a || "telegram" in a || "signal" in a || "messenger" in a ||
+        messengerName.matches(p.name)
 }
