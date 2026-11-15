@@ -40,7 +40,7 @@ jobs:
       - name: Als Release veröffentlichen (Download am Handy)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Foto-Aufräumer 1.0.${{ github.run_number }}
+          tag_name: v1.2.${{ github.run_number }}
+          name: Foto-Aufräumer 1.2.${{ github.run_number }}
           body: APK herunterladen und auf dem Handy öffnen, um sie zu installieren.
           files: Foto-Aufraeumer.apk

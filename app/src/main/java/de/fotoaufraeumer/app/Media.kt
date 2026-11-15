@@ -18,6 +18,7 @@ data class Photo(
     val album: String,
     val width: Int,
     val height: Int,
+    val isFavorite: Boolean = false,
 )
 
 object MediaRepo {
@@ -33,6 +34,7 @@ object MediaRepo {
             MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
             MediaStore.Images.Media.WIDTH,
             MediaStore.Images.Media.HEIGHT,
+            MediaStore.MediaColumns.IS_FAVORITE,
         )
         val result = ArrayList<Photo>()
         cr.query(collection, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { c ->
@@ -44,6 +46,7 @@ object MediaRepo {
             val iBucket = c.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
             val iW = c.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
             val iH = c.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+            val iFav = c.getColumnIndex(MediaStore.MediaColumns.IS_FAVORITE)
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 val taken = c.getLong(iTaken).let { if (it > 0) it else c.getLong(iAdded) * 1000L }
@@ -56,6 +59,7 @@ object MediaRepo {
                     album = c.getString(iBucket) ?: "Sonstige",
                     width = c.getInt(iW),
                     height = c.getInt(iH),
+                    isFavorite = iFav >= 0 && c.getInt(iFav) == 1,
                 )
             }
         }

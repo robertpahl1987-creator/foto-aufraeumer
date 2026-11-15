@@ -37,6 +37,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -130,6 +141,43 @@ fun App(vm: MainViewModel = viewModel()) {
     var useTrash by rememberSaveable { mutableStateOf(true) }
     var showConfirm by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var menuOpen by remember { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
+
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && !granted(ctx, Manifest.permission.POST_NOTIFICATIONS)) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    val favoriteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { res ->
+        if (res.resultCode == Activity.RESULT_OK) vm.onFavoriteConfirmed()
+    }
+
+    fun checkUpdate() {
+        if (!ctx.packageManager.canRequestPackageInstalls()) {
+            vm.lastMessage = "Bitte einmal „Apps aus dieser Quelle zulassen“ aktivieren, dann erneut suchen"
+            runCatching {
+                ctx.startActivity(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + ctx.packageName))
+                )
+            }
+            return
+        }
+        updating = true
+        scope.launch {
+            vm.lastMessage = when (val r = Updater.checkAndInstall(ctx)) {
+                Updater.Result.UpToDate -> "Du hast die neueste Version (${Updater.installedName(ctx)})"
+                is Updater.Result.Installing -> "Update ${r.tag} wird installiert…"
+                is Updater.Result.Failed -> r.message
+            }
+            updating = false
+        }
+    }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -165,6 +213,23 @@ fun App(vm: MainViewModel = viewModel()) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Neu scannen")
                         }
                     }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Menü")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (updating) "Suche Update…" else "Nach Updates suchen") },
+                                enabled = !updating,
+                                onClick = { menuOpen = false; checkUpdate() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Version ${Updater.installedName(ctx)}") },
+                                enabled = false,
+                                onClick = {}
+                            )
+                        }
+                    }
                 }
             )
         },
@@ -197,6 +262,11 @@ fun App(vm: MainViewModel = viewModel()) {
                         )
                         NavigationBarItem(
                             selected = tab == 3, onClick = { tab = 3 },
+                            icon = { Icon(Icons.Filled.Star, null) },
+                            label = { Text("Momente", maxLines = 1) }
+                        )
+                        NavigationBarItem(
+                            selected = tab == 4, onClick = { tab = 4 },
                             icon = { Icon(Icons.Filled.DateRange, null) },
                             label = { Text("Alle", maxLines = 1) }
                         )
@@ -243,6 +313,7 @@ fun App(vm: MainViewModel = viewModel()) {
                             onPreview = { preview = it },
                             onDelete = { if (vm.selected.isNotEmpty()) showConfirm = true }
                         )
+                        3 -> MomentsTab(vm) { preview = it }
                         else -> AllPhotos(vm) { preview = it }
                     }
                 }
@@ -290,9 +361,15 @@ fun App(vm: MainViewModel = viewModel()) {
     }
 
     preview?.let { p ->
+        val current = vm.photos.firstOrNull { it.id == p.id } ?: p
         PreviewDialog(
-            photo = p,
+            photo = current,
             selected = p.id in vm.selected,
+            onFavorite = {
+                vm.buildFavoriteRequest(current)?.let {
+                    favoriteLauncher.launch(IntentSenderRequest.Builder(it).build())
+                }
+            },
             onToggle = { vm.toggle(p.id) },
             onClose = { preview = null }
         )
@@ -652,7 +729,13 @@ fun AllPhotos(vm: MainViewModel, onPreview: (Photo) -> Unit) {
 }
 
 @Composable
-fun PreviewDialog(photo: Photo, selected: Boolean, onToggle: () -> Unit, onClose: () -> Unit) {
+fun PreviewDialog(
+    photo: Photo,
+    selected: Boolean,
+    onFavorite: () -> Unit,
+    onToggle: () -> Unit,
+    onClose: () -> Unit,
+) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AsyncImage(
@@ -686,12 +769,22 @@ fun PreviewDialog(photo: Photo, selected: Boolean, onToggle: () -> Unit, onClose
                     style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onFavorite) {
+                    Icon(
+                        if (photo.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = "Favorit",
+                        tint = if (photo.isFavorite) Color(0xFFFF5A7A) else Color.White
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = onToggle,
                     colors = if (selected) ButtonDefaults.buttonColors()
                     else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text(if (selected) "Nicht löschen" else "Zum Löschen markieren")
+                }
                 }
             }
         }

@@ -11,7 +11,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -39,6 +44,8 @@ enum class SortMode(val label: String) {
     OLDEST("Älteste"),
     LARGEST("Größte"),
     ALBUM("Alben"),
+    YEAR("Jahre"),
+    FAVORITES("Favoriten"),
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -60,6 +67,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var stats by mutableStateOf<Map<Long, Stats>>(emptyMap()); private set
     var blurThreshold by mutableFloatStateOf(80f)
     private val statCache = HashMap<Long, Stats>()
+    // Kurzvideo
+    var videoProgress by mutableStateOf<Int?>(null); private set
+    var videoResult by mutableStateOf<Uri?>(null)
+    private var transformer: Transformer? = null
+
+    // Favoriten
+    private var pendingFavorite: Photo? = null
+
     private var pendingTrash = true
     private var pendingCount = 0
     private var pendingBytes = 0L
@@ -271,6 +286,81 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (id !in selected) selected = selected + id
     }
 
+    // ---------- Favoriten ----------
+
+    fun buildFavoriteRequest(p: Photo): IntentSender? {
+        pendingFavorite = p
+        return try {
+            MediaStore.createFavoriteRequest(cr, listOf(p.uri), !p.isFavorite).intentSender
+        } catch (e: Exception) {
+            lastMessage = "Favorit nicht möglich: ${e.message}"
+            null
+        }
+    }
+
+    fun onFavoriteConfirmed() {
+        val p = pendingFavorite ?: return
+        pendingFavorite = null
+        photos = photos.map { if (it.id == p.id) it.copy(isFavorite = !p.isFavorite) else it }
+        lastMessage = if (p.isFavorite) "Aus Favoriten entfernt" else "Zu Favoriten hinzugefügt ♥"
+    }
+
+    // ---------- Kurzvideo ----------
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    fun makeVideo(chosen: List<Photo>, opts: VideoOptions) {
+        if (transformer != null || chosen.size < 2) return
+        val app = getApplication<Application>()
+        val out = File(app.cacheDir, "moment_${System.currentTimeMillis()}.mp4")
+        videoProgress = 0
+        try {
+            transformer = VideoMaker.start(
+                app, chosen.sortedBy { it.dateTaken }.take(MAX_VIDEO_PHOTOS).map { it.uri }, opts, out
+            ) { error ->
+                transformer = null
+                if (error != null) {
+                    videoProgress = null
+                    out.delete()
+                    lastMessage = "Video konnte nicht erstellt werden: ${error.message}"
+                } else {
+                    viewModelScope.launch {
+                        try {
+                            videoResult = withContext(Dispatchers.IO) { VideoMaker.saveToGallery(app, out) }
+                        } catch (e: Exception) {
+                            lastMessage = "Speichern fehlgeschlagen: ${e.message}"
+                        } finally {
+                            videoProgress = null
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            transformer = null
+            videoProgress = null
+            lastMessage = "Video konnte nicht gestartet werden: ${e.message}"
+            return
+        }
+        viewModelScope.launch {
+            while (transformer != null) {
+                delay(300)
+                transformer?.let { t -> VideoMaker.progress(t)?.let { videoProgress = it } }
+            }
+        }
+    }
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    fun cancelVideo() {
+        transformer?.cancel()
+        transformer = null
+        videoProgress = null
+    }
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    override fun onCleared() {
+        transformer?.cancel()
+        super.onCleared()
+    }
+
     // ---------- Sortierte Ansicht ----------
 
     fun sections(): List<Pair<String, List<Photo>>> = when (sortMode) {
@@ -280,12 +370,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         SortMode.ALBUM -> photos.groupBy { it.album }.toList()
             .sortedByDescending { it.second.size }
             .map { (album, list) -> album to list.sortedByDescending { it.dateTaken } }
+        SortMode.YEAR -> photos.sortedByDescending { it.dateTaken }
+            .groupBy { yearFormat.format(Date(it.dateTaken)) }.toList()
+        SortMode.FAVORITES -> photos.filter { it.isFavorite }.sortedByDescending { it.dateTaken }
+            .groupBy { monthTitle(it.dateTaken) }.toList()
     }
 }
 
 // ---------- Hilfsfunktionen ----------
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.GERMANY)
+private val yearFormat = SimpleDateFormat("yyyy", Locale.GERMANY)
 private val dayFormat = SimpleDateFormat("d. MMM yyyy, HH:mm", Locale.GERMANY)
 
 fun monthTitle(ms: Long): String = monthFormat.format(Date(ms))
