@@ -7,7 +7,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material.icons.filled.Apps
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -144,6 +146,11 @@ fun App(vm: MainViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
+    val ev: ExtraViewModel = viewModel()
+    var extra by rememberSaveable { mutableStateOf<Extra?>(null) }
+    val ea = rememberExtraAktionen(vm, ev)
+    LaunchedEffect(Unit) { Fortschritt.laden(ctx) }
+    BackHandler(enabled = extra != null) { extra = if (extra == Extra.MENU) null else Extra.MENU }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -209,6 +216,12 @@ fun App(vm: MainViewModel = viewModel()) {
                 title = { Text("Foto-Aufräumer") },
                 actions = {
                     if (hasPerm) {
+                        IconButton(onClick = { extra = Extra.SUCHE }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Suchen")
+                        }
+                        IconButton(onClick = { extra = Extra.MENU }) {
+                            Icon(Icons.Filled.Apps, contentDescription = "Werkzeuge")
+                        }
                         IconButton(onClick = { vm.loadAndScan() }, enabled = !vm.scanning) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Neu scannen")
                         }
@@ -240,33 +253,34 @@ fun App(vm: MainViewModel = viewModel()) {
                         count = vm.selected.size,
                         bytes = vm.selectedBytes,
                         onClear = { vm.clearSelection() },
-                        onDelete = { showConfirm = true }
+                        onDelete = { showConfirm = true },
+                        aktionen = ea.auswahlAktionen(vm.photos.filter { it.id in vm.selected }),
                     )
                 }
                 if (hasPerm) {
                     NavigationBar {
                         NavigationBarItem(
-                            selected = tab == 0, onClick = { tab = 0 },
+                            selected = tab == 0 && extra == null, onClick = { tab = 0; extra = null },
                             icon = { Icon(Icons.Filled.CheckCircle, null) },
                             label = { Text("Duplikate", maxLines = 1) }
                         )
                         NavigationBarItem(
-                            selected = tab == 1, onClick = { tab = 1 },
+                            selected = tab == 1 && extra == null, onClick = { tab = 1; extra = null },
                             icon = { Icon(Icons.Filled.Search, null) },
                             label = { Text("Ähnlich", maxLines = 1) }
                         )
                         NavigationBarItem(
-                            selected = tab == 2, onClick = { tab = 2 },
+                            selected = tab == 2 && extra == null, onClick = { tab = 2; extra = null },
                             icon = { Icon(Icons.Filled.Build, null) },
                             label = { Text("Aufräumen", maxLines = 1) }
                         )
                         NavigationBarItem(
-                            selected = tab == 3, onClick = { tab = 3 },
+                            selected = tab == 3 && extra == null, onClick = { tab = 3; extra = null },
                             icon = { Icon(Icons.Filled.Star, null) },
                             label = { Text("Momente", maxLines = 1) }
                         )
                         NavigationBarItem(
-                            selected = tab == 4, onClick = { tab = 4 },
+                            selected = tab == 4 && extra == null, onClick = { tab = 4; extra = null },
                             icon = { Icon(Icons.Filled.DateRange, null) },
                             label = { Text("Alle", maxLines = 1) }
                         )
@@ -279,6 +293,11 @@ fun App(vm: MainViewModel = viewModel()) {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when {
                 !hasPerm -> PermissionScreen { permLauncher.launch(requiredPermissions()) }
+                extra != null -> ExtraHost(
+                    seite = extra!!, vm = vm, ev = ev, ea = ea,
+                    onPreview = { preview = it },
+                    onGehe = { extra = it },
+                )
                 vm.scanning -> ScanningScreen(vm.progress, vm.status)
                 else -> Column(Modifier.fillMaxSize()) {
                     if (partial) {
@@ -311,7 +330,8 @@ fun App(vm: MainViewModel = viewModel()) {
                         2 -> CleanupTab(
                             vm = vm,
                             onPreview = { preview = it },
-                            onDelete = { if (vm.selected.isNotEmpty()) showConfirm = true }
+                            onDelete = { if (vm.selected.isNotEmpty()) showConfirm = true },
+                            onExtras = { extra = Extra.MENU },
                         )
                         3 -> MomentsTab(vm) { preview = it }
                         else -> AllPhotos(vm) { preview = it }
@@ -320,6 +340,8 @@ fun App(vm: MainViewModel = viewModel()) {
             }
         }
     }
+
+    ExtraDialoge(vm, ev, ea)
 
     if (showConfirm) {
         val n = vm.selected.size
@@ -447,7 +469,14 @@ fun ScanningScreen(progress: Float, status: String) {
 }
 
 @Composable
-fun SelectionBar(count: Int, bytes: Long, onClear: () -> Unit, onDelete: () -> Unit) {
+fun SelectionBar(
+    count: Int,
+    bytes: Long,
+    onClear: () -> Unit,
+    onDelete: () -> Unit,
+    aktionen: List<Pair<String, () -> Unit>> = emptyList(),
+) {
+    var mehr by remember { mutableStateOf(false) }
     Surface(tonalElevation = 6.dp, shadowElevation = 6.dp) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -462,6 +491,16 @@ fun SelectionBar(count: Int, bytes: Long, onClear: () -> Unit, onDelete: () -> U
                 )
             }
             TextButton(onClick = onClear) { Text("Abwählen") }
+            if (aktionen.isNotEmpty()) {
+                Box {
+                    IconButton(onClick = { mehr = true }) { Icon(Icons.Filled.MoreVert, "Mehr") }
+                    DropdownMenu(expanded = mehr, onDismissRequest = { mehr = false }) {
+                        aktionen.forEach { (titel, los) ->
+                            DropdownMenuItem(text = { Text(titel) }, onClick = { mehr = false; los() })
+                        }
+                    }
+                }
+            }
             Button(
                 onClick = onDelete,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

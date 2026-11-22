@@ -75,7 +75,7 @@ fun List<Photo>.olderThan(f: AgeFilter): List<Photo> {
 }
 
 @Composable
-fun CleanupTab(vm: MainViewModel, onPreview: (Photo) -> Unit, onDelete: () -> Unit) {
+fun CleanupTab(vm: MainViewModel, onPreview: (Photo) -> Unit, onDelete: () -> Unit, onExtras: () -> Unit = {}) {
     var openCat by rememberSaveable { mutableStateOf<Category?>(null) }
     var swipeCat by rememberSaveable { mutableStateOf<Category?>(null) }
     var age by rememberSaveable { mutableStateOf(AgeFilter.ALL) }
@@ -115,7 +115,8 @@ fun CleanupTab(vm: MainViewModel, onPreview: (Photo) -> Unit, onDelete: () -> Un
             vm = vm,
             categories = categories,
             onOpen = { openCat = it },
-            onSwipe = { age = AgeFilter.ALL; swipeCat = it }
+            onSwipe = { age = AgeFilter.ALL; swipeCat = it },
+            onExtras = onExtras,
         )
     }
 }
@@ -126,12 +127,14 @@ private fun CategoryOverview(
     categories: Map<Category, List<Photo>>,
     onOpen: (Category) -> Unit,
     onSwipe: (Category) -> Unit,
+    onExtras: () -> Unit,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
+        item { SerieKarte(onClick = onExtras) }
         item { StorageCard(vm, categories) }
         listItems(Category.entries.toList(), key = { it.name }) { cat ->
             val list = categories[cat] ?: emptyList()
@@ -320,6 +323,7 @@ private fun SwipeScreen(
 
     fun decide(photo: Photo, delete: Boolean) {
         if (delete) vm.select(photo.id) else vm.deselect(photo.id)
+        vm.swipePoint()
         history.add(photo.id to delete)
         index++
         offsetX = 0f

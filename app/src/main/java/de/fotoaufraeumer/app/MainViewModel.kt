@@ -256,9 +256,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         gone.forEach { statCache.remove(it) }
         stats = HashMap(statCache)
         selected = emptySet()
+        Fortschritt.geloescht(getApplication(), pendingCount, pendingBytes)
+        FotoWidget.aktualisieren(getApplication())
         val what = if (pendingTrash) "in den Papierkorb verschoben" else "gelöscht"
         lastMessage = "$pendingCount Fotos $what · ${formatSize(pendingBytes)} frei"
     }
+
+    // ---------- Für die Extra-Werkzeuge ----------
+
+    /** Entfernt Fotos aus allen Listen, ohne neu zu scannen (z. B. nach Tresor). */
+    fun removeLocally(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        photos = photos.filterNot { it.id in ids }
+        exactGroups = exactGroups.map { g -> g.filterNot { it.id in ids } }.filter { it.size > 1 }
+        similarGroups = similarGroups.map { g -> g.filterNot { it.id in ids } }.filter { it.size > 1 }
+        selected = selected - ids
+        FotoWidget.aktualisieren(getApplication())
+    }
+
+    /** Liest die Foto-Liste neu ein (z. B. nach Verkleinern oder Verschieben), ohne neue Analyse. */
+    fun refreshQuietly() {
+        viewModelScope.launch {
+            val list = try { withContext(Dispatchers.IO) { MediaRepo.loadPhotos(cr) } } catch (e: Exception) { return@launch }
+            val byId = list.associateBy { it.id }
+            photos = list
+            exactGroups = exactGroups.map { g -> g.mapNotNull { byId[it.id] } }.filter { it.size > 1 }
+            similarGroups = similarGroups.map { g -> g.mapNotNull { byId[it.id] } }.filter { it.size > 1 }
+            selected = selected.filterTo(HashSet()) { it in byId }
+            FotoWidget.aktualisieren(getApplication())
+        }
+    }
+
+    /** Punkt für die Aufräum-Serie (Wisch-Entscheidung). */
+    fun swipePoint() = Fortschritt.punkte(getApplication(), 1)
 
     // ---------- Aufräumen-Kategorien ----------
 

@@ -19,6 +19,8 @@ data class Photo(
     val width: Int,
     val height: Int,
     val isFavorite: Boolean = false,
+    val isVideo: Boolean = false,
+    val durationMs: Long = 0L,
 )
 
 object MediaRepo {

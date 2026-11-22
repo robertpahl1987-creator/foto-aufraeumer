@@ -10,6 +10,21 @@ Android-App (ab Android 11), die deine Galerie aufräumt – komplett offline au
 - **Sicheres Löschen:** wahlweise in den Papierkorb (30 Tage wiederherstellbar) oder endgültig. Android fragt vor dem Löschen immer noch einmal nach.
 - Tippen = auswählen, lange drücken = Foto groß ansehen.
 
+## Werkzeuge (oben rechts das Kachel-Symbol oder im Tab „Aufräumen“)
+- **Suche:** findet Text auf Fotos (Briefe, Schilder, Screenshots), erkannte Inhalte, Orte, Tags, Alben und Monate.
+- **Smart-Alben:** Tiere, Aquarium & Fische, Essen, Natur, Menschen, Fahrzeuge … automatisch erkannt (offline).
+- **Dokumente:** Fotos von Briefen, Quittungen und Formularen.
+- **Alben nach Ort:** aus den GPS-Daten der Fotos.
+- **Eigene Tags:** Fotos auswählen → ⋮ → „Tag vergeben“. Ein Tag kann zum echten Galerie-Ordner werden.
+- **Galerie-Ordner:** Fotos auswählen → ⋮ → „In Galerie-Ordner verschieben“.
+- **Große Videos:** die größten Speicherfresser zuerst.
+- **Speicher sparen:** große JPG-Fotos verkleinern (max. 4000 px) – Datum, Ort und Drehung bleiben.
+- **Papierkorb:** Gelöschtes ansehen, wiederherstellen oder sofort endgültig löschen.
+- **Privater Tresor:** Fotos hinter einer PIN verstecken (Achtung: Beim Deinstallieren ist der Inhalt weg).
+- **ZIP-Sicherung:** Fotos auswählen → ⋮ → „Als ZIP sichern“, z. B. auf SD-Karte oder in „Downloads“.
+- **Aufräum-Serie:** Punkte, Stufen, Tagesziel (20 Fotos) und 🔥-Serie.
+- **Widget** für den Startbildschirm und **wöchentliche Erinnerung**.
+
 ## APK bekommen (ohne Android Studio)
 1. Auf github.com ein neues Repository anlegen (z. B. `foto-aufraeumer`).
 2. Alle Dateien aus diesem Ordner hochladen – **inklusive** des Ordners `.github`.
